@@ -1,10 +1,17 @@
 import { readFileSync, writeFileSync } from "node:fs"
+import { reindexTasks } from "./task.js"
 
 const filePath = new URL("../data/tasks.json", import.meta.url)
 
 export function readTasks() {
     const data = readFileSync(filePath, "utf-8")
-    return JSON.parse(data)
+    const tasks = JSON.parse(data)
+
+    if (!Array.isArray(tasks)) {
+        return []
+    }
+
+    return reindexTasks(tasks)
 }
 
 export function writeTasks(tasks: unknown) {

@@ -1,4 +1,9 @@
 import type { Task } from "./task.js"
+import {
+    getNextTaskId,
+    reindexTasks,
+    sortTasksForDisplay
+} from "./task.js"
 import { readTasks, writeTasks } from "./storage.js"
 import { stdin, stdout } from "node:process"
 
@@ -14,9 +19,16 @@ const yellow = "\x1b[33m"
 const green = "\x1b[32m"
 
 function getPriorityColor(priority: Task["priority"]) {
-    if (priority === "high") return red
-    if (priority === "medium") return yellow
-    return green
+    switch (priority) {
+        case "high":
+            return red
+        case "medium":
+            return yellow
+        case "low":
+            return green
+        default:
+            return green
+    }
 }
 
 function formatDueDate(dueDate: number | null) {
@@ -114,6 +126,180 @@ function waitForKey() {
     })
 }
 
+function persistTask(task: Task) {
+    const tasks = readTasks()
+    const index = tasks.findIndex((item: Task) => item.id === task.id)
+
+    if (index !== -1) {
+        tasks[index] = task
+        writeTasks(tasks)
+    }
+}
+
+async function editTaskTitle(task: Task) {
+    stdout.write("\nNew title: ")
+
+    stdin.setRawMode(false)
+    stdin.resume()
+
+    const newTitle = await new Promise<string>((resolve) => {
+        stdin.once("data", (data) => {
+            resolve(data.toString().trim())
+        })
+    })
+
+    if (newTitle) {
+        task.title = newTitle
+        persistTask(task)
+    }
+}
+
+async function editTaskPriority(task: Task) {
+    const priorities: Task["priority"][] = [
+        "low",
+        "medium",
+        "high"
+    ]
+
+    let priorityIndex = priorities.indexOf(task.priority)
+
+    while (true) {
+        clearScreen()
+
+        console.log("SELECT PRIORITY")
+        console.log("────────────────────────────────")
+        console.log("")
+
+        for (let i = 0; i < priorities.length; i++) {
+            const priority = priorities[i]
+            if (!priority) {
+                continue
+            }
+
+            const prefix = i === priorityIndex ? "❯" : " "
+            const color =
+                i === priorityIndex
+                    ? getPriorityColor(priority)
+                    : ""
+
+            console.log(`${color}${prefix} ${priority.toUpperCase()}${resetColor}`)
+        }
+
+        const priorityKey = await waitForKey()
+
+        if (priorityKey === "\x1b[A") {
+            priorityIndex = Math.max(0, priorityIndex - 1)
+        } else if (priorityKey === "\x1b[B") {
+            priorityIndex = Math.min(
+                priorities.length - 1,
+                priorityIndex + 1
+            )
+        } else if (priorityKey === "\r" || priorityKey === "\n") {
+            const selectedPriority = priorities[priorityIndex]
+
+            if (selectedPriority) {
+                task.priority = selectedPriority
+                persistTask(task)
+            }
+            break
+        } else if (priorityKey === "\x1b") {
+            break
+        }
+    }
+}
+
+async function editTaskDueDate(task: Task) {
+    stdout.write("\nNew due date (YYYYMMDD, empty = remove): ")
+
+    stdin.setRawMode(false)
+    stdin.resume()
+
+    const newDate = await new Promise<string>((resolve) => {
+        stdin.once("data", (data) => {
+            resolve(data.toString().trim())
+        })
+    })
+
+    if (newDate === "") {
+        task.dueDate = null
+    } else if (/^\d{8}$/.test(newDate)) {
+        task.dueDate = Number(newDate)
+    }
+
+    persistTask(task)
+}
+
+async function editTaskTags(task: Task) {
+    stdout.write("\nTags separated by spaces (empty = remove): ")
+
+    stdin.setRawMode(false)
+    stdin.resume()
+
+    const newTags = await new Promise<string>((resolve) => {
+        stdin.once("data", (data) => {
+            resolve(data.toString().trim())
+        })
+    })
+
+    task.tags = newTags === "" ? [] : newTags.split(/\s+/)
+    persistTask(task)
+}
+
+function toggleTaskCompletion(task: Task) {
+    task.completed = !task.completed
+    persistTask(task)
+}
+
+function deleteTask(task: Task) {
+    const tasks = readTasks()
+    const index = tasks.findIndex((item: Task) => item.id === task.id)
+
+    if (index === -1) {
+        return false
+    }
+
+    tasks.splice(index, 1)
+    writeTasks(reindexTasks(tasks))
+    return true
+}
+
+function renderTaskDetail(task: Task, selected: number, fields: string[]) {
+    clearScreen()
+
+    console.log("TASK DETAILS")
+    console.log("────────────────────────────────")
+    console.log("")
+
+    const values = [
+        `Title: ${task.title}`,
+        `Priority: ${task.priority.toUpperCase()}`,
+        `Due Date: ${
+            task.dueDate === null
+                ? "None"
+                : formatDueDate(task.dueDate)
+        }`,
+        `Tags: ${
+            task.tags.length === 0
+                ? "None"
+                : task.tags.join(", ")
+        }`,
+        `Status: ${task.completed ? "Completed" : "Pending"}`,
+        "Done",
+        "Delete",
+        "Back"
+    ]
+
+    for (let i = 0; i < fields.length; i++) {
+        const prefix = i === selected ? "❯" : " "
+        const color = i === selected ? selectedBlue : ""
+
+        console.log(`${color}${prefix} ${values[i]}${resetColor}`)
+    }
+
+    console.log("")
+    console.log("↑ ↓ Navigate   Enter Select   Esc Back")
+}
+
 async function interactiveTaskView(task: Task) {
     let selected = 0
 
@@ -129,40 +315,7 @@ async function interactiveTaskView(task: Task) {
     ]
 
     while (true) {
-        clearScreen()
-
-        console.log("TASK DETAILS")
-        console.log("────────────────────────────────")
-        console.log("")
-
-        const values = [
-            `Title: ${task.title}`,
-            `Priority: ${task.priority.toUpperCase()}`,
-            `Due Date: ${
-                task.dueDate === null
-                    ? "None"
-                    : formatDueDate(task.dueDate)
-            }`,
-            `Tags: ${
-                task.tags.length === 0
-                    ? "None"
-                    : task.tags.join(", ")
-            }`,
-            `Status: ${task.completed ? "Completed" : "Pending"}`,
-            "Done",
-            "Delete",
-            "Back"
-        ]
-
-        for (let i = 0; i < fields.length; i++) {
-            const prefix = i === selected ? "❯" : " "
-            const color = i === selected ? selectedBlue : ""
-
-            console.log(`${color}${prefix} ${values[i]}${resetColor}`)
-        }
-
-        console.log("")
-        console.log("↑ ↓ Navigate   Enter Select   Esc Back")
+        renderTaskDetail(task, selected, fields)
 
         const key = await waitForKey()
 
@@ -176,156 +329,23 @@ async function interactiveTaskView(task: Task) {
             const field = fields[selected]
 
             if (field === "title") {
-                stdout.write("\nNew title: ")
-
-                stdin.setRawMode(false)
-                stdin.resume()
-
-                const newTitle = await new Promise<string>((resolve) => {
-                    stdin.once("data", (data) => {
-                        resolve(data.toString().trim())
-                    })
-                })
-
-                if (newTitle) {
-                    task.title = newTitle
-                    writeTasks(readTasks())
-                }
-            }
-
-            if (field === "priority") {
-                const priorities: Task["priority"][] = [
-                    "low",
-                    "medium",
-                    "high"
-                ]
-
-                let priorityIndex = priorities.indexOf(task.priority)
-
-                while (true) {
-                    clearScreen()
-
-                    console.log("SELECT PRIORITY")
-                    console.log("────────────────────────────────")
-                    console.log("")
-
-                    for (let i = 0; i < priorities.length; i++) {
-			    const priority = priorities[i]
-			    if (!priority) {
-				        continue
-			    }
-
-			    const prefix =
-			    i === priorityIndex ? "❯" : " "
-
-			    const color =
-		            i === priorityIndex
-		            ? getPriorityColor(priority)
-		            : ""
-
-			    console.log(`${color}${prefix} ${priority.toUpperCase()}${resetColor}`)
-		}
-                    const priorityKey = await waitForKey()
-
-                    if (priorityKey === "\x1b[A") {
-                        priorityIndex = Math.max(
-                            0,
-                            priorityIndex - 1
-                        )
-                    } else if (priorityKey === "\x1b[B") {
-                        priorityIndex = Math.min(
-                            priorities.length - 1,
-                            priorityIndex + 1
-                        )
-                    } else if (
-                        priorityKey === "\r" ||
-                        priorityKey === "\n"
-                    ) {
-                        const selectedPriority = priorities[priorityIndex]
-
-			if (selectedPriority) {
-			    task.priority = selectedPriority
-			}
-                        break
-                    } else if (priorityKey === "\x1b") {
-                        break
-                    }
-                }
-            }
-
-            if (field === "dueDate") {
-                stdout.write("\nNew due date (YYYYMMDD, empty = remove): ")
-
-                stdin.setRawMode(false)
-                stdin.resume()
-
-                const newDate = await new Promise<string>((resolve) => {
-                    stdin.once("data", (data) => {
-                        resolve(data.toString().trim())
-                    })
-                })
-
-                if (newDate === "") {
-                    task.dueDate = null
-                } else if (/^\d{8}$/.test(newDate)) {
-                    task.dueDate = Number(newDate)
-                }
-            }
-
-            if (field === "tags") {
-                stdout.write(
-                    "\nTags separated by spaces (empty = remove): "
-                )
-
-                stdin.setRawMode(false)
-                stdin.resume()
-
-                const newTags = await new Promise<string>((resolve) => {
-                    stdin.once("data", (data) => {
-                        resolve(data.toString().trim())
-                    })
-                })
-
-                task.tags =
-                    newTags === ""
-                        ? []
-                        : newTags.split(/\s+/)
-            }
-
-            if (field === "status") {
-                task.completed = !task.completed
-            }
-
-            if (field === "done") {
+                await editTaskTitle(task)
+            } else if (field === "priority") {
+                await editTaskPriority(task)
+            } else if (field === "dueDate") {
+                await editTaskDueDate(task)
+            } else if (field === "tags") {
+                await editTaskTags(task)
+            } else if (field === "status") {
+                toggleTaskCompletion(task)
+            } else if (field === "done") {
                 task.completed = true
-            }
-
-            if (field === "delete") {
-                const tasks = readTasks()
-                const index = tasks.findIndex(
-                    (item: Task) => item.id === task.id
-                )
-
-                if (index !== -1) {
-                    tasks.splice(index, 1)
-                    writeTasks(tasks)
-                }
-
+                persistTask(task)
+            } else if (field === "delete") {
+                deleteTask(task)
                 return
-            }
-
-            if (field === "back") {
+            } else if (field === "back") {
                 return
-            }
-
-            const tasks = readTasks()
-            const index = tasks.findIndex(
-                (item: Task) => item.id === task.id
-            )
-
-            if (index !== -1) {
-                tasks[index] = task
-                writeTasks(tasks)
             }
         }
     }
@@ -446,14 +466,7 @@ async function interactiveMode() {
             const currentTasks = readTasks()
 
             const newTask: Task = {
-                id:
-                    currentTasks.length === 0
-                        ? 1
-                        : Math.max(
-                            ...currentTasks.map(
-                                (task: Task) => task.id
-                            )
-                        ) + 1,
+                id: getNextTaskId(currentTasks),
                 title: newTitle,
                 completed: false,
                 priority: "medium",
@@ -492,7 +505,7 @@ if (!command) {
     const args = process.argv.slice(4)
 
     const task: Task = {
-        id: tasks.length + 1,
+        id: getNextTaskId(tasks),
         title: argument,
         completed: false,
         priority: parsePriority(args),
@@ -555,6 +568,7 @@ if (!command) {
         )
     }
 
+    let displayedTasks = tasks
     const sortIndex = args.indexOf("--sort")
 
     if (sortIndex !== -1) {
@@ -572,48 +586,13 @@ if (!command) {
             process.exit(1)
         }
 
-        if (sortType === "due") {
-            tasks.sort((a: Task, b: Task) => {
-                if (a.dueDate === null) return 1
-                if (b.dueDate === null) return -1
-
-                return a.dueDate - b.dueDate
-            })
-        }
-
-        if (sortType === "priority") {
-            const priorityOrder = {
-                high: 1,
-                medium: 2,
-                low: 3
-            }
-
-            tasks.sort(
-                (a: Task, b: Task) =>
-                    priorityOrder[a.priority] -
-                    priorityOrder[b.priority]
-            )
-        }
-
-        if (sortType === "created") {
-            tasks.sort(
-                (a: Task, b: Task) =>
-                    new Date(a.createdAt).getTime() -
-                    new Date(b.createdAt).getTime()
-            )
-        }
-
-        if (sortType === "id") {
-            tasks.sort(
-                (a: Task, b: Task) => a.id - b.id
-            )
-        }
+        displayedTasks = sortTasksForDisplay(tasks, sortType)
     }
 
     console.log("\nTODO LIST")
     console.log("────────────────────────────────")
 
-    for (const task of tasks) {
+    for (const task of displayedTasks) {
         const status = task.completed ? "✓" : " "
 
         const idLabel =
@@ -686,7 +665,7 @@ if (!command) {
     const deletedTask = tasks[taskIndex]
 
     tasks.splice(taskIndex, 1)
-    writeTasks(tasks)
+    writeTasks(reindexTasks(tasks))
 
     console.log(
         `Deleted task #${deletedTask.id}: ${deletedTask.title}`
