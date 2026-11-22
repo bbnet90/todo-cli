@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import type { Task } from "./task.js"
 import {
     getNextTaskId,

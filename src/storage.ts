@@ -1,9 +1,14 @@
-import { readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { reindexTasks } from "./task.js"
 
 const filePath = new URL("../data/tasks.json", import.meta.url)
+const dirPath = new URL("../data/", import.meta.url)
 
 export function readTasks() {
+    if (!existsSync(filePath)) {
+        return []
+    }
+
     const data = readFileSync(filePath, "utf-8")
     const tasks = JSON.parse(data)
 
@@ -15,6 +20,8 @@ export function readTasks() {
 }
 
 export function writeTasks(tasks: unknown) {
+    mkdirSync(dirPath, { recursive: true })
+
     const data = JSON.stringify(tasks, null, 2)
     writeFileSync(filePath, data)
 }
