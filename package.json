@@ -2,16 +2,20 @@
   "name": "todo-cli",
   "version": "1.0.0",
   "description": "",
-  "bin": { "todo": "./src/cli.js"},
+  "bin": {
+    "todo": "./src/cli.js"
+  },
   "main": "index.js",
   "scripts": {
-    "test": "node --test"},
+    "test": "node --import tsx --test src/*.test.ts"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "devDependencies": {
     "@types/node": "^26.6.2",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
 }
