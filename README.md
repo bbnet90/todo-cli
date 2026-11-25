@@ -34,6 +34,8 @@ The application can be used interactively or entirely through CLI commands.
 todo-cli/
 ├── src/
 │   ├── cli.ts
+│   ├── panel.ts
+│   ├── panel-command.ts
 │   ├── storage.ts
 │   └── task.ts
 ├── data/
@@ -74,7 +76,7 @@ The application stores tasks in:
 data/tasks.json
 ```
 
-The storage path is resolved relative to the application source rather than the current working directory. This allows the global `todo` command to work even when it is executed outside the project directory.
+The default storage path is resolved relative to the application source rather than the current working directory. This allows the global `todo` command to work even when it is executed outside the project directory.
 
 ### `src/task.ts`
 
@@ -98,38 +100,29 @@ export interface Task {
 
 ## Installation
 
-Clone the repository:
+Use Node.js 20 or newer with npm. From a fresh checkout:
 
 ```bash
 git clone https://github.com/bbnet90/todo-cli.git
 cd todo-cli
+npm ci
+npm install -g .
 ```
 
-Install the dependencies:
+Verify the installed command without reading your own tasks:
 
 ```bash
-npm install
+work=$(mktemp -d)
+TODO_CLI_DATA_FILE="$work/tasks.json" todo panel --json
+test ! -e "$work/tasks.json"
+rmdir "$work"
 ```
 
-Compile the TypeScript source:
+The output matches the empty-panel JSON example below.
 
-```bash
-npx tsc
-```
-
-The TypeScript compiler generates the JavaScript files used to execute the CLI.
-
-Then link the command globally:
-
-```bash
-sudo npm link
-```
-
-After linking, the application can be started with:
-
-```bash
-todo
-```
+The prepare script compiles the TypeScript source during `npm ci`. For a
+development checkout, use `npm link` after `npm ci` to put the same `todo`
+executable on your PATH. Rebuild after editing with `npm run build`.
 
 ## Interactive Mode
 
@@ -365,6 +358,17 @@ This keeps the project easy to inspect and removes the need for a database serve
 
 The `data/tasks.json` file contains local task data and is intentionally excluded from Git.
 
+To select a different file for **all** commands, set `TODO_CLI_DATA_FILE`:
+
+```bash
+export TODO_CLI_DATA_FILE="$HOME/.local/share/todo-cli/tasks.json"
+```
+
+An empty or unset override selects the original package-relative file. Relative
+overrides resolve against the current working directory. Use an absolute path
+when sharing data between a terminal and the dashboard. A write creates the
+parent directory as needed.
+
 ## Git Ignore Policy
 
 The repository does not track generated or machine-specific files.
@@ -386,8 +390,8 @@ The repository therefore contains the TypeScript source rather than generated bu
 After cloning the repository, dependencies and generated files can be recreated locally with:
 
 ```bash
-npm install
-npx tsc
+npm ci
+npm test
 ```
 
 ## Design Decisions
@@ -438,25 +442,38 @@ The project was also built as a practical exercise in:
 * Git workflow
 * Global CLI installation
 
-## Future Integration
+## Read-only task panel
 
-Although Todo CLI works independently, it may eventually become one component of a larger personal developer environment called **Developer Command Center**.
+`todo panel` prints a Turkish summary to stdout. Use `--json` for a single
+line of JSON. For example, a missing task file produces:
 
-A possible architecture would look like:
-
-```text
-Developer Command Center
-├── Todo
-├── System
-├── Git
-├── Projects
-└── Settings
+```json
+{"title":"Yapılacaklar","lines":["Görev yok.","Eklemek için: todo add \"Başlık\""],"open":["todo"]}
 ```
 
-In that architecture, Developer Command Center could detect whether the `todo` command is installed and expose Todo CLI as the task-management module.
+Pending tasks are ordered by earliest due date, then priority and ID. The
+default limit is 5 tasks. Pass `--limit N` (1–20) to change it. Overdue counts
+use today's local date unless you pass a calendar date with `--today YYYYMMDD`.
+An unreadable or corrupt file yields an error on stderr and exit code 1.
 
-Todo CLI would remain an independent application and would not depend on Developer Command Center.
+## Command Center integration
+
+For command-center 0.2 or newer **with command-panel support**, add this to its
+`config.toml`. Make sure the dashboard's PATH includes the installed `todo`
+executable.
+
+```toml
+[[command_panel]]
+id = "todo"
+title = "Yapılacaklar"
+panel = ["todo", "panel", "--json"]
+open = ["todo"]
+```
+
+Panels must stay read-only and fast. Displaying this panel reads the task file
+without creating directories, saving data, or opening the interactive UI.
+Opening it explicitly launches the normal interactive task manager.
 
 ## License
 
-This project is currently intended for personal and educational use.
+MIT. See [LICENSE](LICENSE).
