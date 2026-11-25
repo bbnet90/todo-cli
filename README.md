@@ -458,6 +458,22 @@ An unreadable or corrupt file yields an error on stderr and exit code 1.
 
 ## Command Center integration
 
+`todo panel --describe` prints the **format 1** registration contract as one UTF-8 JSON line. Run it on its own during installation. It leaves the task file untouched, even when the file is missing or corrupt.
+
+```json
+{"format":1,"id":"todo","title":"Yapılacaklar","kind":"command","panel":["todo","panel","--json"],"open":["todo"],"version":"1.0.0"}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `format` | Registration contract version. |
+| `id` | Stable panel identifier. |
+| `title` | Display name shared with the task summary. |
+| `kind` | `command` identifies a panel supplied by a CLI. |
+| `panel` | Executable and arguments to fetch the current summary. |
+| `open` | Executable and arguments to launch the interactive task manager. |
+| `version` | Installed Todo CLI version from its `package.json`. |
+
 For command-center 0.2 or newer **with command-panel support**, add this to its
 `config.toml`. Make sure the dashboard's PATH includes the installed `todo`
 executable.

@@ -1,5 +1,7 @@
 import type { Task } from "./task.js"
 
+export const panelMetadata = { title: "Yapılacaklar", open: ["todo"] } as const
+
 const rank = { high: 0, medium: 1, low: 2 }
 
 function taskLine(task: Task) {
@@ -28,5 +30,5 @@ export function buildPanel(tasks: readonly Task[], options: { today: number; lim
         lines.push(...pending.slice(0, limit).map(taskLine))
         if (pending.length > limit) lines.push(`+${pending.length - limit} daha`)
     }
-    return { title: "Yapılacaklar", lines, open: ["todo"] }
+    return { title: panelMetadata.title, lines, open: [...panelMetadata.open] }
 }

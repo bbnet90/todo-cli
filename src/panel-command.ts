@@ -1,4 +1,5 @@
-import { buildPanel } from "./panel.js"
+import { readFileSync } from "node:fs"
+import { buildPanel, panelMetadata } from "./panel.js"
 import { readPanelTasks } from "./storage.js"
 
 function calendarDate(value: string) {
@@ -9,6 +10,25 @@ function calendarDate(value: string) {
 }
 
 export function panelCommand(args: string[]): number {
+    if (args.includes("--describe")) {
+        if (args.length !== 1) {
+            console.error("--describe tek başına kullanılmalı.")
+            return 1
+        }
+        const manifest = new URL("../package.json", import.meta.url)
+        const { version } = JSON.parse(readFileSync(manifest, "utf8"))
+        console.log(JSON.stringify({
+            format: 1,
+            id: "todo",
+            title: panelMetadata.title,
+            kind: "command",
+            panel: ["todo", "panel", "--json"],
+            open: panelMetadata.open,
+            version
+        }))
+        return 0
+    }
+
     const now = new Date()
     let today = now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate()
     let limit = 5

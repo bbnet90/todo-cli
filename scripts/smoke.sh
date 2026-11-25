@@ -46,3 +46,26 @@ assert.equal(raw.trimEnd().split("\n").length, 1)
 JS
 test ! -e "$work/absent"
 printf '%s\n' 'Installed panel smoke passed.'
+
+"$cmd" panel --describe > describe.json
+test ! -e "$work/absent"
+mkdir -p "$work/absent"
+printf '{' > "$TODO_CLI_DATA_FILE"
+"$cmd" panel --describe > corrupt-describe.json
+cmp describe.json corrupt-describe.json
+node --input-type=module <<'JS'
+import assert from "node:assert/strict"
+import fs from "node:fs"
+const [pack] = JSON.parse(fs.readFileSync("pack.json", "utf8"))
+const manifest = JSON.parse(fs.readFileSync("prefix/lib/node_modules/todo-cli/package.json", "utf8"))
+assert.equal(manifest.version, pack.version)
+const expected = {
+    format: 1, id: "todo", title: "Yapılacaklar", kind: "command",
+    panel: ["todo", "panel", "--json"], open: ["todo"], version: pack.version
+}
+const raw = fs.readFileSync("describe.json", "utf8")
+assert.equal(raw, JSON.stringify(expected) + "\n")
+process.stdout.write(raw)
+console.log("Installed package version:", manifest.version)
+console.log("Corrupt task file: identical output")
+JS
