@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import type { Task } from "./task.js"
+import { panelCommand } from "./panel-command.js"
 import {
     getNextTaskId,
     reindexTasks,
@@ -492,6 +493,9 @@ async function interactiveMode() {
 
 if (!command) {
     await interactiveMode()
+}
+ else if (command === "panel") {
+    process.exitCode = panelCommand(process.argv.slice(3))
 }
  else if (command === "help") {
     showHelp()
