@@ -369,6 +369,7 @@ Commands:
   clear                        Delete all tasks
   panel [--json] [--limit N] [--today YYYYMMDD]
                                Show a read-only task summary
+  panel --describe               Print Command Center registration JSON
   help                         Show this help
 
 Add options:

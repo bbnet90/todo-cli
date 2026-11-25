@@ -53,3 +53,49 @@ test("help lists panel and unknown commands fail on stderr", () => {
     assert.equal(error.stdout, "")
     assert.equal(error.stderr, "Unknown command: not-a-command\n")
 })
+
+test("describe prints the format 1 contract independently of task storage", t => {
+    const dir = mkdtempSync(join(tmpdir(), "panel-describe-"))
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
+    const file = join(dir, "tasks.json")
+    const run = (...args: string[]) => spawnSync(process.execPath,
+        ["--import", "tsx", "src/cli.ts", "panel", ...args], {
+            encoding: "utf8", timeout: 5000,
+            env: { ...process.env, TODO_CLI_DATA_FILE: file }
+        })
+    const version = JSON.parse(readFileSync("package.json", "utf8")).version
+    const expected = JSON.stringify({
+        format: 1, id: "todo", title: "Yapılacaklar", kind: "command",
+        panel: ["todo", "panel", "--json"], open: ["todo"], version
+    }) + "\n"
+    function describe() {
+        const result = run("--describe")
+        assert.equal(result.status, 0, result.stderr)
+        assert.equal(result.stderr, "")
+        assert.equal(result.stdout, expected)
+        return JSON.parse(result.stdout)
+    }
+    const metadata = describe()
+    assert.equal(existsSync(file), false)
+    writeFileSync(file, "{")
+    describe()
+    assert.equal(readFileSync(file, "utf8"), "{")
+
+    const readme = readFileSync("README.md", "utf8")
+    const example = readme.match(/\[\[command_panel\]\]\n([\s\S]*?)\n```/)?.[1]
+    assert.ok(example)
+    for (const key of ["panel", "open"]) {
+        const line = example.split("\n").find(line => line.startsWith(key + " = "))
+        assert.ok(line, key)
+        assert.deepEqual(metadata[key], JSON.parse(line.slice(line.indexOf("=") + 1)))
+    }
+
+    for (const options of [["--json"], ["--limit", "1"], ["--today", "20240229"]]) {
+        for (const args of [["--describe", ...options], [...options, "--describe"]]) {
+            const result = run(...args)
+            assert.equal(result.status, 1)
+            assert.equal(result.stdout, "")
+            assert.match(result.stderr, /--describe/)
+        }
+    }
+})
