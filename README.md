@@ -109,6 +109,17 @@ npm ci
 npm install -g .
 ```
 
+Verify the installed command without reading your own tasks:
+
+```bash
+work=$(mktemp -d)
+TODO_CLI_DATA_FILE="$work/tasks.json" todo panel --json
+test ! -e "$work/tasks.json"
+rmdir "$work"
+```
+
+The output matches the empty-panel JSON example below.
+
 The prepare script compiles the TypeScript source during `npm ci`. For a
 development checkout, use `npm link` after `npm ci` to put the same `todo`
 executable on your PATH. Rebuild after editing with `npm run build`.
