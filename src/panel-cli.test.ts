@@ -85,7 +85,7 @@ test("describe prints the format 1 contract independently of task storage", t =>
     const example = readme.match(/\[\[command_panel\]\]\n([\s\S]*?)\n```/)?.[1]
     assert.ok(example)
     for (const key of ["panel", "open"]) {
-        const line = example.split("\n").find(line => line.startsWith(key + " = "))
+        const line: string | undefined = example.split("\n").find(row => row.startsWith(key + " = "))
         assert.ok(line, key)
         assert.deepEqual(metadata[key], JSON.parse(line.slice(line.indexOf("=") + 1)))
     }
