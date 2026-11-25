@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { readTasks, readPanelTasks, writeTasks } from "./storage.js"
+import { readTasks, readPanelTasks, updateTasks } from "./storage.js"
 
 test("both readers resolve the override on each call; only writing creates parents", t => {
     const dir = mkdtempSync(join(tmpdir(), "tasks-"))
@@ -17,7 +17,7 @@ test("both readers resolve the override on each call; only writing creates paren
     assert.deepEqual(readPanelTasks(), { ok: true, tasks: [] })
     assert.deepEqual(readTasks(), [])
     assert.equal(existsSync(join(dir, "missing")), false)
-    writeTasks([])
+    updateTasks(tasks => { tasks.length = 0 })
     assert.deepEqual(readPanelTasks(), { ok: true, tasks: [] })
     const other = join(dir, "other.json")
     process.env.TODO_CLI_DATA_FILE = other
@@ -26,8 +26,11 @@ test("both readers resolve the override on each call; only writing creates paren
         assert.equal(readPanelTasks().ok, false)
     }
     const valid = { id: 7, title: "First", completed: true, priority: "high", dueDate: 20260701, tags: ["a"], createdAt: "date" }
-    writeTasks([null, 1, [], valid, { title: 1, dueDate: "later" }])
-    assert.deepEqual(readPanelTasks(), { ok: true, tasks: [
+    writeFileSync(other, JSON.stringify([null, 1, [], valid, { title: 1, dueDate: "later" }]))
+    const result = readPanelTasks()
+    assert.ok(result.ok)
+    assert.equal(new Set(result.tasks.map(task => task.uid)).size, 2)
+    assert.deepEqual(result.tasks.map(({ uid, ...row }) => row), [
         valid, { id: 2, title: "", completed: false, priority: "medium", dueDate: null, tags: [], createdAt: "" }
-    ] })
+    ])
 })
