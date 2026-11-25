@@ -1,16 +1,15 @@
 #!/usr/bin/env node
+import { randomUUID } from "node:crypto"
 import type { Task } from "./task.js"
 import { panelCommand } from "./panel-command.js"
 import {
     getNextTaskId,
-    reindexTasks,
     sortTasksForDisplay
 } from "./task.js"
-import { readTasks, writeTasks } from "./storage.js"
+import { readTasks, updateByUid, updateTasks, TaskRemoved, type StoredTask } from "./storage.js"
 import { stdin, stdout } from "node:process"
 
 const command = process.argv[2]
-const argument = process.argv[3]
 
 const lightBlue = "\x1b[94m"
 const selectedBlue = "\x1b[36m"
@@ -56,8 +55,7 @@ function parsePriority(
     const value = args[index + 1]
 
     if (value !== "low" && value !== "medium" && value !== "high") {
-        console.log("Priority must be: low, medium, or high.")
-        process.exit(1)
+        throw new Error("Priority must be: low, medium, or high.")
     }
 
     return value
@@ -76,8 +74,7 @@ function parseDueDate(
     const value = args[index + 1]
 
     if (!value || !/^\d{8}$/.test(value)) {
-        console.log("Due date must be in YYYYMMDD format.")
-        process.exit(1)
+        throw new Error("Due date must be in YYYYMMDD format.")
     }
 
     return Number(value)
@@ -95,8 +92,7 @@ function parseTags(
             const tag = args[i + 1]
 
             if (!tag) {
-                console.log("Please provide a tag.")
-                process.exit(1)
+                throw new Error("Please provide a tag.")
             }
 
             tags.push(tag)
@@ -128,17 +124,14 @@ function waitForKey() {
     })
 }
 
-function persistTask(task: Task) {
-    const tasks = readTasks()
-    const index = tasks.findIndex((item: Task) => item.id === task.id)
-
-    if (index !== -1) {
-        tasks[index] = task
-        writeTasks(tasks)
-    }
+function persistTask(task: StoredTask, change: (current: StoredTask) => void) {
+    updateByUid(task.uid, current => {
+        change(current)
+        Object.assign(task, current)
+    })
 }
 
-async function editTaskTitle(task: Task) {
+async function editTaskTitle(task: StoredTask) {
     stdout.write("\nNew title: ")
 
     stdin.setRawMode(false)
@@ -151,12 +144,11 @@ async function editTaskTitle(task: Task) {
     })
 
     if (newTitle) {
-        task.title = newTitle
-        persistTask(task)
+        persistTask(task, current => { current.title = newTitle })
     }
 }
 
-async function editTaskPriority(task: Task) {
+async function editTaskPriority(task: StoredTask) {
     const priorities: Task["priority"][] = [
         "low",
         "medium",
@@ -200,8 +192,7 @@ async function editTaskPriority(task: Task) {
             const selectedPriority = priorities[priorityIndex]
 
             if (selectedPriority) {
-                task.priority = selectedPriority
-                persistTask(task)
+                persistTask(task, current => { current.priority = selectedPriority })
             }
             break
         } else if (priorityKey === "\x1b") {
@@ -210,7 +201,7 @@ async function editTaskPriority(task: Task) {
     }
 }
 
-async function editTaskDueDate(task: Task) {
+async function editTaskDueDate(task: StoredTask) {
     stdout.write("\nNew due date (YYYYMMDD, empty = remove): ")
 
     stdin.setRawMode(false)
@@ -222,16 +213,12 @@ async function editTaskDueDate(task: Task) {
         })
     })
 
-    if (newDate === "") {
-        task.dueDate = null
-    } else if (/^\d{8}$/.test(newDate)) {
-        task.dueDate = Number(newDate)
+    if (newDate === "" || /^\d{8}$/.test(newDate)) {
+        persistTask(task, current => { current.dueDate = newDate ? Number(newDate) : null })
     }
-
-    persistTask(task)
 }
 
-async function editTaskTags(task: Task) {
+async function editTaskTags(task: StoredTask) {
     stdout.write("\nTags separated by spaces (empty = remove): ")
 
     stdin.setRawMode(false)
@@ -243,26 +230,7 @@ async function editTaskTags(task: Task) {
         })
     })
 
-    task.tags = newTags === "" ? [] : newTags.split(/\s+/)
-    persistTask(task)
-}
-
-function toggleTaskCompletion(task: Task) {
-    task.completed = !task.completed
-    persistTask(task)
-}
-
-function deleteTask(task: Task) {
-    const tasks = readTasks()
-    const index = tasks.findIndex((item: Task) => item.id === task.id)
-
-    if (index === -1) {
-        return false
-    }
-
-    tasks.splice(index, 1)
-    writeTasks(reindexTasks(tasks))
-    return true
+    persistTask(task, current => { current.tags = newTags === "" ? [] : newTags.split(/\s+/) })
 }
 
 function renderTaskDetail(task: Task, selected: number, fields: string[]) {
@@ -302,7 +270,7 @@ function renderTaskDetail(task: Task, selected: number, fields: string[]) {
     console.log("↑ ↓ Navigate   Enter Select   Esc Back")
 }
 
-async function interactiveTaskView(task: Task) {
+async function interactiveTaskView(task: StoredTask) {
     let selected = 0
 
     const fields = [
@@ -339,12 +307,11 @@ async function interactiveTaskView(task: Task) {
             } else if (field === "tags") {
                 await editTaskTags(task)
             } else if (field === "status") {
-                toggleTaskCompletion(task)
+                persistTask(task, current => { current.completed = !current.completed })
             } else if (field === "done") {
-                task.completed = true
-                persistTask(task)
+                persistTask(task, current => { current.completed = true })
             } else if (field === "delete") {
-                deleteTask(task)
+                updateByUid(task.uid, (current, tasks) => tasks.splice(tasks.indexOf(current), 1))
                 return
             } else if (field === "back") {
                 return
@@ -388,6 +355,7 @@ List options:
 
 async function interactiveMode() {
     let selected = 0
+    let notice = ""
 
     while (true) {
         const tasks = readTasks()
@@ -408,8 +376,7 @@ async function interactiveMode() {
             console.log("No tasks.")
         }
 
-        for (let i = 0; i < tasks.length; i++) {
-            const task = tasks[i]
+        for (const [i, task] of tasks.entries()) {
             const status = task.completed ? "✓" : " "
             const selectedLine = i === selected
 
@@ -445,6 +412,10 @@ async function interactiveMode() {
         )
         console.log("")
         console.log("↑ ↓ Navigate   Enter Open   q Quit")
+        if (notice) {
+            console.log(notice)
+            notice = ""
+        }
 
         const key = await waitForKey()
 
@@ -452,84 +423,36 @@ async function interactiveMode() {
             selected = Math.max(0, selected - 1)
         } else if (key === "\x1b[B") {
             selected = Math.min(addNoteIndex, selected + 1)
-        }  else if (key === "\r" || key === "\n") {
-    if (selected === addNoteIndex) {
-        clearScreen()
-
-        stdout.write("New task title: ")
-
-        stdin.setRawMode(false)
-        stdin.resume()
-
-        const newTitle = await new Promise<string>((resolve) => {
-            stdin.once("data", (data) => {
-                resolve(data.toString().trim())
-            })
-        })
-
-        if (newTitle) {
-            const currentTasks = readTasks()
-
-            const newTask: Task = {
-                id: getNextTaskId(currentTasks),
-                title: newTitle,
-                completed: false,
-                priority: "medium",
-                dueDate: null,
-                tags: [],
-                createdAt: new Date().toISOString()
+        } else if (key === "\r" || key === "\n") {
+            if (selected === addNoteIndex) {
+                clearScreen()
+                stdout.write("New task title: ")
+                stdin.setRawMode(false)
+                stdin.resume()
+                const title = await new Promise<string>(resolve => {
+                    stdin.once("data", data => resolve(data.toString().trim()))
+                })
+                if (title) addTask(title, [])
+            } else {
+                const task = tasks[selected]
+                if (task) {
+                    try {
+                        await interactiveTaskView(task)
+                    } catch (error) {
+                        if (!(error instanceof TaskRemoved)) throw error
+                        notice = error.message
+                    }
+                }
             }
-
-            currentTasks.push(newTask)
-            writeTasks(currentTasks)
-        }
-    } else if (tasks.length > 0) {
-        await interactiveTaskView(tasks[selected])
-    }
-}
-         else if (key === "q" || key === "Q") {
+        } else if (key === "q" || key === "Q") {
             clearScreen()
             return
         }
     }
 }
 
-if (!command) {
-    await interactiveMode()
-}
- else if (command === "panel") {
-    process.exitCode = panelCommand(process.argv.slice(3))
-}
- else if (command === "help") {
-    showHelp()
-}
- else if (command === "add") {
-    if (!argument) {
-        console.log("Please provide a task title.")
-        process.exit(1)
-    }
-
-    const tasks = readTasks()
-    const args = process.argv.slice(4)
-
-    const task: Task = {
-        id: getNextTaskId(tasks),
-        title: argument,
-        completed: false,
-        priority: parsePriority(args),
-        dueDate: parseDueDate(args),
-        tags: parseTags(args),
-        createdAt: new Date().toISOString()
-    }
-
-    tasks.push(task)
-    writeTasks(tasks)
-
-    console.log(`Added task #${task.id}`)
-} else if (command === "list") {
+function listTasks(args: string[]) {
     let tasks = readTasks()
-    const args = process.argv.slice(3)
-
     const priorityIndex = args.indexOf("--priority")
 
     if (priorityIndex !== -1) {
@@ -540,12 +463,11 @@ if (!command) {
             priority !== "medium" &&
             priority !== "high"
         ) {
-            console.log("Priority must be: low, medium, or high.")
-            process.exit(1)
+            throw new Error("Priority must be: low, medium, or high.")
         }
 
         tasks = tasks.filter(
-            (task: Task) => task.priority === priority
+            (task: StoredTask) => task.priority === priority
         )
     }
 
@@ -555,24 +477,23 @@ if (!command) {
         const tag = args[tagIndex + 1]
 
         if (!tag) {
-            console.log("Please provide a tag.")
-            process.exit(1)
+            throw new Error("Please provide a tag.")
         }
 
         tasks = tasks.filter(
-            (task: Task) => task.tags.includes(tag)
+            (task: StoredTask) => task.tags.includes(tag)
         )
     }
 
     if (args.includes("--pending")) {
         tasks = tasks.filter(
-            (task: Task) => !task.completed
+            (task: StoredTask) => !task.completed
         )
     }
 
     if (args.includes("--completed")) {
         tasks = tasks.filter(
-            (task: Task) => task.completed
+            (task: StoredTask) => task.completed
         )
     }
 
@@ -588,10 +509,7 @@ if (!command) {
             sortType !== "created" &&
             sortType !== "id"
         ) {
-            console.log(
-                "Sort must be: due, priority, created, or id."
-            )
-            process.exit(1)
+            throw new Error("Sort must be: due, priority, created, or id.")
         }
 
         displayedTasks = sortTasksForDisplay(tasks, sortType)
@@ -630,95 +548,98 @@ if (!command) {
             `${task.title}${dueDateLabel}${tagsLabel}`
         )
     }
-} else if (command === "done") {
-    if (!argument) {
-        console.log("Please provide a task ID.")
-        process.exit(1)
+}
+
+function addTask(title: string, args: string[]) {
+    const priority = parsePriority(args)
+    const dueDate = parseDueDate(args)
+    const tags = parseTags(args)
+    let id = 0
+    updateTasks(tasks => {
+        id = getNextTaskId(tasks)
+        tasks.push({ uid: randomUUID(), id, title, completed: false, priority, dueDate, tags,
+            createdAt: new Date().toISOString() })
+    })
+    return id
+}
+
+const editFlags = ["--priority", "--due", "--tag"]
+const commands: Record<string, { usage: string; positions: number; flags: string[] }> = {
+    add: { usage: 'add <title> [--priority LEVEL] [--due YYYYMMDD] [--tag TAG]', positions: 1, flags: editFlags },
+    edit: { usage: 'edit <id> <title> [--priority LEVEL] [--due YYYYMMDD] [--tag TAG]', positions: 2, flags: editFlags },
+    list: { usage: 'list [--priority LEVEL] [--tag TAG] [--pending] [--completed] [--sort FIELD]', positions: 0,
+        flags: ["--priority", "--tag", "--pending", "--completed", "--sort"] },
+    done: { usage: 'done <id>', positions: 1, flags: [] },
+    delete: { usage: 'delete <id>', positions: 1, flags: [] },
+    clear: { usage: 'clear', positions: 0, flags: [] }
+}
+
+async function run() {
+    const args = process.argv.slice(3)
+    if (!command) return interactiveMode()
+    if (command === "help") return showHelp()
+    if (command === "panel") {
+        process.exitCode = panelCommand(args)
+        return
+    }
+    const spec = Object.hasOwn(commands, command) ? commands[command] : undefined
+    if (!spec) throw new Error("Unknown command: " + command)
+    const usage = "Usage: todo " + spec.usage
+    if (args.includes("--help") || args.includes("-h")) {
+        console.log(usage)
+        return
+    }
+    for (const arg of args) {
+        if (arg.startsWith("-") && !spec.flags.includes(arg)) throw new Error("Unknown option: " + arg)
+    }
+    const positions = args.slice(0, spec.positions)
+    if (positions.length !== spec.positions || positions.some(arg => !arg || arg.startsWith("-"))) {
+        throw new Error(usage)
+    }
+    const flags = args.slice(spec.positions)
+    for (let i = 0; i < flags.length; i++) {
+        const flag = flags[i]!
+        if (!spec.flags.includes(flag)) throw new Error(usage)
+        if (flag === "--pending" || flag === "--completed") continue
+        const value = flags[++i]
+        if (!value || value.startsWith("-")) throw new Error("Missing value for " + flag)
     }
 
-    const id = Number(argument)
-    const tasks = readTasks()
-
-    const task = tasks.find(
-        (task: Task) => task.id === id
-    )
-
-    if (!task) {
-        console.log(`Task #${id} not found.`)
-        process.exit(1)
+    if (command === "list") return listTasks(flags)
+    if (command === "add") {
+        console.log("Added task #" + addTask(positions[0]!, flags))
+        return
     }
-
-    task.completed = true
-    writeTasks(tasks)
-
-    console.log(`Task #${id} completed.`)
-} else if (command === "delete") {
-    if (!argument) {
-        console.log("Please provide a task ID.")
-        process.exit(1)
+    if (command === "clear") {
+        updateTasks(tasks => { tasks.length = 0 })
+        console.log("All tasks cleared.")
+        return
     }
+    const id = Number(positions[0])
+    let message = ""
+    updateTasks(tasks => {
+        const task = tasks.find(item => item.id === id)
+        if (!task) throw new Error(`Task #${id} not found.`)
+        if (command === "delete") {
+            tasks.splice(tasks.indexOf(task), 1)
+            message = `Deleted task #${id}: ${task.title}`
+        } else if (command === "done") {
+            task.completed = true
+            message = `Task #${id} completed.`
+        } else {
+            task.title = positions[1]!
+            task.priority = parsePriority(flags, task.priority)
+            task.dueDate = parseDueDate(flags, task.dueDate)
+            task.tags = parseTags(flags, task.tags)
+            message = `Task #${id} updated.`
+        }
+    })
+    console.log(message)
+}
 
-    const id = Number(argument)
-    const tasks = readTasks()
-
-    const taskIndex = tasks.findIndex(
-        (task: Task) => task.id === id
-    )
-
-    if (taskIndex === -1) {
-        console.log(`Task #${id} not found.`)
-        process.exit(1)
-    }
-
-    const deletedTask = tasks[taskIndex]
-
-    tasks.splice(taskIndex, 1)
-    writeTasks(reindexTasks(tasks))
-
-    console.log(
-        `Deleted task #${deletedTask.id}: ${deletedTask.title}`
-    )
-} else if (command === "clear") {
-    const tasks = readTasks()
-
-    tasks.length = 0
-    writeTasks(tasks)
-
-    console.log("All tasks cleared.")
-} else if (command === "edit") {
-    const id = Number(process.argv[3])
-    const newTitle = process.argv[4]
-
-    if (!newTitle) {
-        console.log("Please provide a new task title.")
-        process.exit(1)
-    }
-
-    const tasks = readTasks()
-
-    const task = tasks.find(
-        (task: Task) => task.id === id
-    )
-
-    if (!task) {
-        console.log(`Task #${id} not found.`)
-        process.exit(1)
-    }
-
-    const args = process.argv.slice(5)
-
-    task.title = newTitle
-    task.priority =
-        parsePriority(args, task.priority)
-    task.dueDate =
-        parseDueDate(args, task.dueDate)
-    task.tags =
-        parseTags(args, task.tags)
-
-    writeTasks(tasks)
-
-    console.log(`Task #${id} updated.`)
-} else {
-    console.error("Unknown command:", command)
+try {
+    await run()
+} catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
     process.exitCode = 1
 }

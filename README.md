@@ -331,6 +331,11 @@ todo clear
 todo help
 ```
 
+`todo add`, `list`, `done`, `edit`, `delete`, and `clear` each support
+`-h` and `--help` before accessing storage. For example, `todo clear --help`
+prints usage and leaves the task file untouched. Unknown options exit with
+status 1 and a diagnostic on stderr.
+
 ## Data Storage
 
 Todo CLI currently uses a local JSON file instead of a database.
@@ -341,6 +346,7 @@ Example:
 [
   {
     "id": 1,
+    "uid": "9bb3af07-a130-421c-b66d-22ca2d99ddd3",
     "title": "C ödevi",
     "completed": false,
     "priority": "high",
@@ -368,6 +374,21 @@ An empty or unset override selects the original package-relative file. Relative
 overrides resolve against the current working directory. Use an absolute path
 when sharing data between a terminal and the dashboard. A write creates the
 parent directory as needed.
+
+Task numbers follow list order and close up after a deletion. Each stored task
+also has a permanent UUID (`uid`). An open editor uses this identity if another
+terminal renumbers the list. When its task disappears, the editor returns to
+the list with a warning. The first ordinary read or mutation of a legacy file
+assigns missing UIDs under the write lock. Panel commands leave the file alone.
+
+Each mutation exclusively creates `<data-file>.lock`, reads the current tasks,
+and renames a flushed sibling temporary file over the original. Writers retry
+for up to five seconds. Short-lived PID/UUID claim files coordinate lock
+creation and stale-lock cleanup. A dead owner's lock can be reclaimed, as can
+an incomplete owner record older than 30 seconds. A live PID keeps its lock
+regardless of age. Use a local filesystem and the same OS PID namespace for
+all writers. Network shares and other programs editing the JSON do not
+participate in these guarantees.
 
 ## Git Ignore Policy
 
