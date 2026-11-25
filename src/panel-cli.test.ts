@@ -42,3 +42,14 @@ test("panel command is read-only, has exact JSON/plain output and separates erro
     assert.equal(bad.stdout, "")
     assert.ok(bad.stderr.trim())
 })
+
+test("help lists panel and unknown commands fail on stderr", () => {
+    const invoke = (arg: string) => spawnSync(process.execPath, ["--import", "tsx", "src/cli.ts", arg], { encoding: "utf8" })
+    const help = invoke("help")
+    assert.equal(help.status, 0)
+    assert.match(help.stdout, /panel \[--json\]/)
+    const error = invoke("not-a-command")
+    assert.equal(error.status, 1)
+    assert.equal(error.stdout, "")
+    assert.equal(error.stderr, "Unknown command: not-a-command\n")
+})

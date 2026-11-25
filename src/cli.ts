@@ -367,6 +367,8 @@ Commands:
   edit <id> <title>            Edit a task
   delete <id>                  Delete a task
   clear                        Delete all tasks
+  panel [--json] [--limit N] [--today YYYYMMDD]
+                               Show a read-only task summary
   help                         Show this help
 
 Add options:
@@ -716,5 +718,6 @@ if (!command) {
 
     console.log(`Task #${id} updated.`)
 } else {
-    console.log("Unknown command:", command)
+    console.error("Unknown command:", command)
+    process.exitCode = 1
 }

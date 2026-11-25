@@ -1,21 +1,31 @@
 {
   "name": "todo-cli",
   "version": "1.0.0",
-  "description": "",
+  "description": "Local terminal task manager with an interactive UI and a read-only summary panel",
   "bin": {
     "todo": "./src/cli.js"
   },
-  "main": "index.js",
   "scripts": {
-    "test": "node --import tsx --test src/*.test.ts"
+    "test": "node --import tsx --test src/*.test.ts",
+    "build": "tsc",
+    "prepare": "tsc"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "devDependencies": {
     "@types/node": "^26.6.2",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
-  }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "src/*.js",
+    "!src/*.test.js",
+    "README.md",
+    "LICENSE"
+  ]
 }
