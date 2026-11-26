@@ -16,3 +16,21 @@ jobs:
       - run: npm run build
       - run: npm test
       - run: scripts/smoke.sh
+
+  package:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: scripts/release-build.sh
+      - run: |
+          read -r sha archive < dist/SHA256SUMS
+          scripts/release-verify.sh "dist/$archive" "$sha"
