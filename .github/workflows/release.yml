@@ -1,0 +1,67 @@
+name: Publish release tarball
+on: workflow_dispatch
+permissions:
+  contents: read
+concurrency:
+  group: todo-cli-release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.publish.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: scripts/release-build.sh
+      - name: Publish a new version
+        id: publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          tag="v$version"
+          archive="todo-cli-$version.tgz"
+          tag_ref=$(git ls-remote --refs origin "refs/tags/$tag")
+          releases=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[].tag_name')
+          if [[ -n "$tag_ref" ]] || grep -Fxq "$tag" <<< "$releases"; then
+            echo "Tag or release already exists: $tag" >&2
+            exit 1
+          fi
+          read -r sha file < dist/SHA256SUMS
+          test "$file" = "$archive"
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$tag/$archive"
+          notes=$(printf 'Version: %s\nCommit: %s\nSHA-256: %s\n\nInstall: `npm install -g %s`\n' "$version" "$GITHUB_SHA" "$sha" "$url")
+          gh release create "$tag" "dist/$archive" dist/SHA256SUMS --target "$GITHUB_SHA" --title "$tag" --notes "$notes"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify published assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          archive="todo-cli-${TAG#v}.tgz"
+          gh release download "$TAG" --pattern "$archive" --pattern SHA256SUMS --dir dist
+          read -r sha file < dist/SHA256SUMS
+          test "$file" = "$archive"
+          scripts/release-verify.sh "dist/$archive" "$sha"

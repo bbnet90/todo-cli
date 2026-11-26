@@ -100,14 +100,29 @@ export interface Task {
 
 ## Installation
 
-Use Node.js 20 or newer with npm. From a fresh checkout:
+Use Node.js 20 or newer with npm. Install the prebuilt tarball for a published
+release. For example, once v1.0.0 is published:
 
 ```bash
-git clone https://github.com/bbnet90/todo-cli.git
-cd todo-cli
-npm ci
-npm install -g .
+npm install -g https://github.com/bbnet90/todo-cli/releases/download/v1.0.0/todo-cli-1.0.0.tgz
 ```
+
+To verify the downloaded bytes before installing, run these commands in an
+empty directory with Git Bash or a Linux shell:
+
+```bash
+version=1.0.0
+base="https://github.com/bbnet90/todo-cli/releases/download/v$version"
+archive="todo-cli-$version.tgz"
+curl -fLO "$base/$archive" &&
+  curl -fLO "$base/SHA256SUMS" &&
+  sha256sum -c SHA256SUMS &&
+  npm install -g "./$archive"
+```
+
+Installing from a `git+https` URL is unsupported. It runs the TypeScript build
+on the user's machine, where the compiler or Node type definitions may be
+missing. The release tarball includes the compiled JavaScript.
 
 Verify the installed command without reading your own tasks:
 
