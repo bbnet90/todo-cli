@@ -70,13 +70,7 @@ Running `todo` without a command opens the interactive interface.
 
 Responsible for reading and writing task data.
 
-The application stores tasks in:
-
-```text
-data/tasks.json
-```
-
-The default storage path is resolved relative to the application source rather than the current working directory. This allows the global `todo` command to work even when it is executed outside the project directory.
+Tasks are stored in a per-user JSON file. See [Data location](#data-location).
 
 ### `src/task.ts`
 
@@ -101,17 +95,17 @@ export interface Task {
 ## Installation
 
 Use Node.js 20 or newer with npm. Install the prebuilt tarball for a published
-release. For example, once v1.0.0 is published:
+release. For example, once v1.1.0 is published:
 
 ```bash
-npm install -g https://github.com/bbnet90/todo-cli/releases/download/v1.0.0/todo-cli-1.0.0.tgz
+npm install -g https://github.com/bbnet90/todo-cli/releases/download/v1.1.0/todo-cli-1.1.0.tgz
 ```
 
 To verify the downloaded bytes before installing, run these commands in an
 empty directory with Git Bash or a Linux shell:
 
 ```bash
-version=1.0.0
+version=1.1.0
 base="https://github.com/bbnet90/todo-cli/releases/download/v$version"
 archive="todo-cli-$version.tgz"
 curl -fLO "$base/$archive" &&
@@ -377,24 +371,32 @@ Example:
 
 This keeps the project easy to inspect and removes the need for a database server or external service.
 
-The `data/tasks.json` file contains local task data and is intentionally excluded from Git.
+### Data location
 
-To select a different file for **all** commands, set `TODO_CLI_DATA_FILE`:
+- Windows uses `%APPDATA%\todo-cli\tasks.json`, falling back to
+  `AppData\Roaming\todo-cli\tasks.json` under your home directory when APPDATA is unset.
+- Linux and other systems use `$XDG_DATA_HOME/todo-cli/tasks.json` when
+  XDG_DATA_HOME is absolute, otherwise `~/.local/share/todo-cli/tasks.json`.
+- Set `TODO_CLI_DATA_FILE` to override either default. A relative override
+  resolves against the current working directory. An empty or unset value
+  selects the platform default. An override never imports package-local tasks.
 
-```bash
-export TODO_CLI_DATA_FILE="$HOME/.local/share/todo-cli/tasks.json"
-```
+The new default survives npm updates and uninstall/reinstall. If only the old
+package-local `data/tasks.json` exists, viewing tasks reads that file in place.
+The first successful change imports its tasks into the user file and leaves the
+original untouched. When both files exist, the user file wins, even if empty.
 
-An empty or unset override selects the original package-relative file. Relative
-overrides resolve against the current working directory. Use an absolute path
-when sharing data between a terminal and the dashboard. A write creates the
-parent directory as needed.
+**Upgrading from 1.0.0:** Back up the old package's `data/tasks.json` before
+replacing or uninstalling that package. npm may delete it before 1.1.0 gets a
+chance to migrate it. If that happens, restore your backup to the new data path
+before adding tasks.
 
 Task numbers follow list order and close up after a deletion. Each stored task
 also has a permanent UUID (`uid`). An open editor uses this identity if another
 terminal renumbers the list. When its task disappears, the editor returns to
-the list with a warning. The first ordinary read or mutation of a legacy file
-assigns missing UIDs under the write lock. Panel commands leave the file alone.
+the list with a warning. In a user file or explicit override, the first ordinary read or mutation
+assigns missing UIDs under the write lock. When displaying a package-local
+fallback, missing identities stay in memory until the first change. Panel commands leave the file alone.
 
 Each mutation exclusively creates `<data-file>.lock`, reads the current tasks,
 and renames a flushed sibling temporary file over the original. Writers retry
@@ -497,7 +499,7 @@ An unreadable or corrupt file yields an error on stderr and exit code 1.
 `todo panel --describe` prints the **format 1** registration contract as one UTF-8 JSON line. Run it on its own during installation. It leaves the task file untouched, even when the file is missing or corrupt.
 
 ```json
-{"format":1,"id":"todo","title":"Yapılacaklar","kind":"command","panel":["todo","panel","--json"],"open":["todo"],"version":"1.0.0"}
+{"format":1,"id":"todo","title":"Yapılacaklar","kind":"command","panel":["todo","panel","--json"],"open":["todo"],"version":"1.1.0"}
 ```
 
 | Field | Meaning |
