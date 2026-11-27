@@ -6,7 +6,7 @@
     "todo": "./src/cli.js"
   },
   "scripts": {
-    "test": "node --import tsx --test src/*.test.ts",
+    "test": "node --import tsx --test --test-concurrency=1 src/*.test.ts",
     "build": "tsc",
     "prepare": "tsc"
   },
