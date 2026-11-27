@@ -7,6 +7,21 @@ const timeoutMs = 5000
 const incompleteLockAgeMs = 30000
 const sleep = new Int32Array(new SharedArrayBuffer(4))
 
+function sharingError(error: unknown) {
+    const code = (error as NodeJS.ErrnoException).code
+    return code === "EPERM" || code === "EACCES" || code === "EBUSY"
+}
+
+function removeStale(path: string) {
+    try {
+        rmSync(path, { force: true })
+        return true
+    } catch (error) {
+        if (sharingError(error)) return false
+        throw error
+    }
+}
+
 function dead(pid: number) {
     try {
         process.kill(pid, 0)
@@ -26,7 +41,7 @@ function stale(path: string) {
         }
         return Date.now() - statSync(path).mtimeMs >= incompleteLockAgeMs
     } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false
+        if ((error as NodeJS.ErrnoException).code === "ENOENT" || sharingError(error)) return false
         throw error
     }
 }
@@ -49,14 +64,14 @@ function tryAcquire(lock: string): boolean {
             const pid = Number(ticket[1])
             if (!Number.isInteger(pid) || pid < 1 || pid > 0x7fffffff) continue
             if (!dead(pid)) return false
-            rmSync(join(dir, name), { force: true })
+            if (!removeStale(join(dir, name))) return false
         }
-        if (stale(lock)) rmSync(lock, { force: true })
+        if (stale(lock) && !removeStale(lock)) return false
         let fd: number
         try {
             fd = openSync(lock, "wx", 0o600)
         } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === "EEXIST") return false
+            if ((error as NodeJS.ErrnoException).code === "EEXIST" || sharingError(error)) return false
             throw error
         }
         try {
