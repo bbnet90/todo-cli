@@ -19,17 +19,20 @@ fi
 cd "$(dirname "$0")/.."
 version=$(node -p 'require("./package.json").version')
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+start=$(pwd)
+trap 'cd "$start" && rm -rf "$work"' EXIT
 cd "$work"
 npm install -g --prefix "$work/prefix" "$archive"
+# Node receives native paths from Git Bash and from native Windows shells.
+native_path() {
+    node -p 'require("node:path").resolve(process.argv[1])' "$1"
+}
 cmd="$work/prefix/bin/todo"
 TODO_CLI_DATA_FILE="$work/absent/tasks.json"
-case "$(uname -s)" in
-    MINGW*|MSYS*|CYGWIN*)
-        cmd="$work/prefix/todo.cmd"
-        TODO_CLI_DATA_FILE=$(cygpath -w "$TODO_CLI_DATA_FILE")
-        ;;
-esac
+if [ "$(node -p process.platform)" = win32 ]; then
+    cmd="$work/prefix/todo.cmd"
+    TODO_CLI_DATA_FILE=$(native_path "$TODO_CLI_DATA_FILE")
+fi
 export TODO_CLI_DATA_FILE
 "$cmd" panel --json > panel.json
 test ! -e "$work/absent"
@@ -47,3 +50,24 @@ assert.equal(description.id, "todo")
 assert.equal(description.version, process.argv[2])
 console.log(`Verified todo ${description.version}: empty panel, descriptor, no data file.`)
 JS
+
+unset TODO_CLI_DATA_FILE
+mkdir -p "$work/home" "$work/roaming" "$work/xdg"
+HOME="$work/home"
+USERPROFILE="$HOME"
+APPDATA="$work/roaming"
+XDG_DATA_HOME="$work/xdg"
+expected="$work/xdg/todo-cli/tasks.json"
+if [ "$(node -p process.platform)" = win32 ]; then
+    USERPROFILE=$(native_path "$HOME")
+    APPDATA=$(native_path "$APPDATA")
+    XDG_DATA_HOME=$(native_path "$XDG_DATA_HOME")
+    expected="$work/roaming/todo-cli/tasks.json"
+fi
+export HOME USERPROFILE APPDATA XDG_DATA_HOME
+"$cmd" add "kalıcılık"
+test -f "$expected"
+npm install -g --prefix "$work/prefix" "$archive"
+"$cmd" list > list.txt
+grep -F "kalıcılık" list.txt
+echo "Verified default data survives reinstall."

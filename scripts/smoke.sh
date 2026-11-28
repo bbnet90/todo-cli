@@ -3,7 +3,7 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+trap 'cd "$root" && rm -rf "$work"' EXIT
 mkdir -p "$work/source/src"
 cp "$root/package.json" "$root/package-lock.json" "$root/tsconfig.json" \
     "$root/LICENSE" "$root/README.md" "$work/source/"
@@ -31,9 +31,12 @@ JS
 )
 npm install --global --prefix "$work/prefix" --no-audit --no-fund "./$archive"
 cd "$work"
-export TODO_CLI_DATA_FILE="$work/absent/tasks.json"
+export TODO_CLI_DATA_FILE="absent/tasks.json"
 cmd="$work/prefix/bin/todo"
-test -x "$cmd"
+if [ "$(node -p process.platform)" = win32 ]; then
+    cmd="$work/prefix/todo.cmd"
+fi
+test -f "$cmd"
 "$cmd" panel --json > output.json
 node --input-type=module <<'JS'
 import assert from "node:assert/strict"
@@ -57,7 +60,8 @@ node --input-type=module <<'JS'
 import assert from "node:assert/strict"
 import fs from "node:fs"
 const [pack] = JSON.parse(fs.readFileSync("pack.json", "utf8"))
-const manifest = JSON.parse(fs.readFileSync("prefix/lib/node_modules/todo-cli/package.json", "utf8"))
+const modules = process.platform === "win32" ? "prefix/node_modules" : "prefix/lib/node_modules"
+const manifest = JSON.parse(fs.readFileSync(modules + "/todo-cli/package.json", "utf8"))
 assert.equal(manifest.version, pack.version)
 const expected = {
     format: 1, id: "todo", title: "Yapılacaklar", kind: "command",
